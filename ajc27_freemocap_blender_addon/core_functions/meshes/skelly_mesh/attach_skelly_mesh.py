@@ -6,7 +6,7 @@ from ajc27_freemocap_blender_addon.data_models.armatures.armature_bone_info impo
 from ajc27_freemocap_blender_addon.data_models.poses.pose_element import PoseElement
 import bpy
 from mathutils import Vector, Matrix, Euler
-
+from copy import deepcopy
 
 from ajc27_freemocap_blender_addon import PACKAGE_ROOT_PATH
 from ajc27_freemocap_blender_addon.system.constants import (
@@ -20,18 +20,43 @@ from ajc27_freemocap_blender_addon.data_models.armatures.bone_name_map import (
 from ajc27_freemocap_blender_addon.data_models.meshes.skelly_bones import (
     get_skelly_bones,
 )
+from ajc27_freemocap_blender_addon.core_functions.meshes.skelly_mesh.helpers.auxiliary import (
+    get_bone_info,
+    align_markers_to_armature,
+)
+from ajc27_freemocap_blender_addon.core_functions.meshes.skelly_mesh.helpers.translate_vertex_groups import (
+    translate_vertex_groups,
+)
+from ajc27_freemocap_blender_addon.core_functions.meshes.skelly_mesh.helpers.scale_vertex_groups import (
+    scale_vertex_groups,
+)
+from ajc27_freemocap_blender_addon.core_functions.meshes.skelly_mesh.helpers.rotate_vertex_groups import (
+    rotate_vertex_groups,
+)
+from ajc27_freemocap_blender_addon.core_functions.meshes.skelly_mesh.helpers.parent_vertex_groups_to_armature import (
+    parent_vertex_groups_to_armature,
+)
+from ajc27_freemocap_blender_addon.core_functions.meshes.skelly_mesh.helpers.empty_markers_for_rest_pose import (
+    _EMPTY_MARKERS,
+)
+from ajc27_freemocap_blender_addon.core_functions.meshes.skelly_mesh.helpers.skelly_vertex_groups import (
+    _SKELLY_VERTEX_GROUPS,
+)
+
 
 SKELLY_MESH_PATH = str(Path(PACKAGE_ROOT_PATH) / "assets" / "skelly_lowpoly_mesh.fbx")
 SKELLY_BONES_PATH = str(Path(PACKAGE_ROOT_PATH) / "assets" / "skelly_bones")
+SKELLY_FULL_MESH_PATH = str(Path(PACKAGE_ROOT_PATH) / "assets" / "skelly_full_mesh_20k_faces.blend")
 
 class AddSkellyMeshMethods(Enum):
     BY_BONE_MESH = "by_bone_mesh"
     COMPLETE_MESH = "complete_mesh"
+    BY_VERTEX_GROUP = "by_vertex_group"
 
 def attach_skelly_mesh_to_rig(
     rig: bpy.types.Object,
     body_dimensions: Dict[str, float],
-    add_mesh_method: AddSkellyMeshMethods = AddSkellyMeshMethods.BY_BONE_MESH,
+    add_mesh_method: AddSkellyMeshMethods = AddSkellyMeshMethods.BY_VERTEX_GROUP,
 ) -> None:
     # Change to object mode
     if bpy.context.selected_objects != []:
@@ -46,6 +71,13 @@ def attach_skelly_mesh_to_rig(
             rig=rig,
             body_dimensions=body_dimensions,
         )
+    elif add_mesh_method == AddSkellyMeshMethods.BY_VERTEX_GROUP:
+        attach_skelly_by_vertex_group(
+            skelly_mesh_path=SKELLY_FULL_MESH_PATH,
+            rig=rig,
+            vertex_groups=deepcopy(_SKELLY_VERTEX_GROUPS),
+            empty_markers=deepcopy(_EMPTY_MARKERS),
+        )
     else:
         raise ValueError("Invalid add_mesh_method")    
 
@@ -54,7 +86,7 @@ def attach_skelly_by_bone_mesh(
     armature: Dict[str, ArmatureBoneInfo] = ArmatureType.FREEMOCAP,
     pose: Dict[str, PoseElement] = PoseType.FREEMOCAP_TPOSE,
 ) -> None:
-    
+
     if armature == ArmatureType.UE_METAHUMAN_SIMPLE:
         armature_name = UE_METAHUMAN_SIMPLE_ARMATURE
     elif armature == ArmatureType.FREEMOCAP:
@@ -162,7 +194,7 @@ def attach_skelly_by_bone_mesh(
             bone_vector = skelly_bones[mesh].bones_end - skelly_bones[mesh].bones_origin
             # Get new bone vector after applying the position offset
             new_bone_vector = skelly_bones[mesh].bones_end - part_location
-            
+
             # Apply the rotations to the Skelly part
             bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
@@ -175,7 +207,7 @@ def attach_skelly_by_bone_mesh(
 
         # Apply the transformations to the Skelly part
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
- 
+
     # Set material 'Base' as material 0 for all skelly bone meshes
     for skelly_mesh in skelly_meshes:
         skelly_mesh.data.materials[0] = bpy.data.materials['Bone']
@@ -192,7 +224,7 @@ def attach_skelly_by_bone_mesh(
 
     # Set skelly_mesh as active
     bpy.context.view_layer.objects.active = skelly_meshes[0]
-    
+
     # Join the body meshes
     bpy.ops.object.join()
 
@@ -208,7 +240,7 @@ def attach_skelly_complete_mesh(
     body_dimensions: Dict[str, float],
     skelly_mesh_path: str = SKELLY_MESH_PATH
 ) -> None:
-    
+
     try:
         # Get the script filepath
         # Import the skelly mesh
@@ -221,7 +253,7 @@ def attach_skelly_complete_mesh(
     except Exception as e:
         print(f"Error while importing skelly mesh: {e}")
         print(traceback.format_exc())
-        
+
     # Deselect all objects
     for object in bpy.data.objects:
         object.select_set(False)
@@ -262,7 +294,6 @@ def attach_skelly_complete_mesh(
                             rig_to_body_mesh_toe_to_toe_ratio,
                             rig_to_body_mesh_height_ratio)
 
-
     # Set rig as active
     bpy.context.view_layer.objects.active = skelly_mesh
 
@@ -275,7 +306,7 @@ def attach_skelly_complete_mesh(
     # Change skelly mesh origin to (0, 0, 0)
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR', center='MEDIAN')
 
-    ### Parent the skelly_mesh with the rig
+    # Parent the skelly_mesh with the rig
     # Select the rig
     rig.select_set(True)
     # Set rig as active
@@ -286,5 +317,53 @@ def attach_skelly_complete_mesh(
     # Rename the skelly mesh to fmc_mesh
     skelly_mesh.name = 'skelly_mesh'
 
+def attach_skelly_by_vertex_group(
+    skelly_mesh_path: Path,
+    rig: bpy.types.Object,
+    vertex_groups: Dict,
+    empty_markers: Dict,
+) -> None:
 
+    bone_info = get_bone_info(rig)
+    align_markers_to_armature(empty_markers, bone_info)
 
+    object_name = 'Skelly_Full_Mesh'
+
+    # Append the skelly mesh as blend file because the exports (fbx, obj) don't save all the vertex groups
+    with bpy.data.libraries.load(skelly_mesh_path, link=False) as (data_from, data_to):
+        if object_name in data_from.objects:
+            data_to.objects.append(object_name)
+
+    # Link the appended object to the current scene
+    if object_name in bpy.data.objects:
+        obj = bpy.data.objects[object_name]
+        bpy.context.collection.objects.link(obj)
+
+    # Deselect all objects
+    for object in bpy.data.objects:
+        object.select_set(False)
+
+    skelly_mesh = bpy.data.objects['Skelly_Full_Mesh']
+    skelly_mesh.select_set(True)
+    bpy.context.view_layer.objects.active = skelly_mesh
+
+    # Change to edit mode
+    bpy.ops.object.mode_set(mode='EDIT')
+
+    translate_vertex_groups(skelly_mesh, vertex_groups, bone_info)
+    scale_vertex_groups(skelly_mesh, vertex_groups, bone_info)
+    rotate_vertex_groups(skelly_mesh, vertex_groups, bone_info)
+
+    # Change to object mode
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    parent_vertex_groups_to_armature(skelly_mesh, vertex_groups, rig)
+
+    # Parent the skelly mesh to the rig
+    bpy.ops.object.select_all(action='DESELECT')
+    skelly_mesh.select_set(True)
+    rig.select_set(True)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.parent_set(type='OBJECT')
+
+    return
